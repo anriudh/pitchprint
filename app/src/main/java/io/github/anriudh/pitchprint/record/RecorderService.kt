@@ -17,6 +17,7 @@ import java.io.File
 class RecorderService : Service() {
     private var session: Session? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var markers: VolumeMarkers? = null
     private val main = Handler(Looper.getMainLooper())
 
     private val screenReceiver = object : BroadcastReceiver() {
@@ -68,9 +69,12 @@ class RecorderService : Service() {
         session = s
         Recorder.attach(s)
         s.start(isNew, reason)
-        wakeLock = getSystemService(PowerManager::class.java)
-            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "pitchprint:recording")
+        val power = getSystemService(PowerManager::class.java)
+        wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "pitchprint:recording")
             .apply { acquire(WAKE_LOCK_TIMEOUT_MS) }
+        markers = VolumeMarkers(this) { key ->
+            if (s.volumeKey(key, power.isInteractive)) Haptics.confirm(this)
+        }.also { it.start() }
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_SCREEN_OFF)
@@ -90,6 +94,7 @@ class RecorderService : Service() {
             return
         }
         session = null
+        stopMarkers()
         unregisterReceiver(screenReceiver)
         // Closing waits for the writer to drain and fsync, so keep it off the main thread.
         Thread({
@@ -108,6 +113,7 @@ class RecorderService : Service() {
         // Destroyed without a stop request: keep the session resumable.
         session?.let { s ->
             session = null
+            stopMarkers()
             unregisterReceiver(screenReceiver)
             s.event("service_destroyed")
             s.halt()
@@ -115,6 +121,11 @@ class RecorderService : Service() {
         }
         releaseWakeLock()
         super.onDestroy()
+    }
+
+    private fun stopMarkers() {
+        markers?.stop()
+        markers = null
     }
 
     private fun releaseWakeLock() {

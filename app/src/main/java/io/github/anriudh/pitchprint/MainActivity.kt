@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -14,6 +15,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import io.github.anriudh.pitchprint.record.Haptics
 import io.github.anriudh.pitchprint.record.Notifications
 import io.github.anriudh.pitchprint.record.Recorder
 import io.github.anriudh.pitchprint.record.Session
@@ -55,6 +57,22 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         refreshInterrupted()
     }
+
+    // With the app in front, volume keys reach the activity first; with the screen off or another
+    // app in front, the recorder's media session gets them instead.
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        val s = Recorder.session
+        if (s == null || !isVolumeKey(keyCode)) return super.onKeyDown(keyCode, event)
+        val key = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) "up" else "down"
+        if (s.volumeKey(key, screenOn = true)) Haptics.confirm(this)
+        return true
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean =
+        if (Recorder.session != null && isVolumeKey(keyCode)) true else super.onKeyUp(keyCode, event)
+
+    private fun isVolumeKey(keyCode: Int) =
+        keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
 
     private fun handleResume(intent: Intent?) {
         if (intent?.getBooleanExtra(Notifications.EXTRA_RESUME, false) == true && Recorder.session == null) {
