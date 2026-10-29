@@ -1,6 +1,6 @@
 # Session format, version 1
 
-Each recording is one folder named after its start time plus a random suffix, for example `2026-11-01_0912_ab12`. Export zips the folder as `pitchprint_<folder>.zip`, with the files inside a directory of the same name. `tools/check_session.py` reads either the folder or the zip.
+Each recording is one folder named after its start time plus a random suffix, for example `2026-11-01_0912_ab12`. Once a session can no longer be resumed, the app zips it in place as `<folder>.zip`, with the files inside a directory of the same name, checks the zip against the folder byte for byte and then removes the folder. Only the session that is recording, or that was interrupted and can still be resumed, stays a plain folder. Export shares that same zip; the files inside are unchanged, so the format version doesn't change. `tools/check_session.py` reads either the folder or the zip.
 
 Files are append-only and written while recording. A crash can leave a half-written last line. The app cuts it off before appending again (and logs a `repaired` event), but a reader should still drop a final line that has no newline.
 

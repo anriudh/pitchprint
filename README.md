@@ -27,8 +27,8 @@ On first use the home screen lists the settings that can stop a screen-off recor
 
 ## Recordings
 
-Sessions live in the app's own storage, `Android/data/<package>/files/sessions/`, one folder each. Export from the Sessions screen zips a session and opens the share sheet. The file format is described in [docs/session-format.md](docs/session-format.md), and `tools/check_session.py` (Python 3, standard library only) checks a session folder or zip for gaps, sample rates and broken lines:
+Sessions live in the app's own storage, `Android/data/<package>/files/sessions/`. A finished session is kept as one zip, which is much smaller than the raw files; the session being recorded is a folder until it ends. Export from the Sessions screen shares the zip through the share sheet. The app never deletes a session by itself: the Sessions screen has a Delete button, and the home screen warns once the app holds more than 1 GB or the phone has less than 1 GB free. The file format is described in [docs/session-format.md](docs/session-format.md), and `tools/check_session.py` (Python 3, standard library only) checks a session folder or zip for gaps, sample rates and broken lines:
 
 ```
-python tools/check_session.py pitchprint_2026-11-01_0912_ab12.zip
+python tools/check_session.py 2026-11-01_0912_ab12.zip
 ```
