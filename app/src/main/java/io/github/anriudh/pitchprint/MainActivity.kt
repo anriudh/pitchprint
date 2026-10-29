@@ -25,11 +25,12 @@ import io.github.anriudh.pitchprint.record.Notifications
 import io.github.anriudh.pitchprint.record.Recorder
 import io.github.anriudh.pitchprint.record.Session
 import io.github.anriudh.pitchprint.record.Sessions
+import io.github.anriudh.pitchprint.ui.DeviceCheckScreen
 import io.github.anriudh.pitchprint.ui.HomeScreen
 import io.github.anriudh.pitchprint.ui.RecordingScreen
 import io.github.anriudh.pitchprint.ui.SessionsScreen
 
-private enum class Screen { HOME, SESSIONS }
+private enum class Screen { HOME, SESSIONS, DEVICE }
 
 class MainActivity : ComponentActivity() {
     private var interrupted by mutableStateOf<String?>(null)
@@ -59,6 +60,7 @@ class MainActivity : ComponentActivity() {
                 when {
                     live.recording -> RecordingScreen(live, onStop = { Recorder.stop(this) })
                     screen == Screen.SESSIONS -> SessionsScreen(onBack = { screen = Screen.HOME })
+                    screen == Screen.DEVICE -> DeviceCheckScreen(onBack = { screen = Screen.HOME })
                     else -> HomeScreen(
                         interrupted = interrupted,
                         checksVersion = checksVersion,
@@ -66,6 +68,7 @@ class MainActivity : ComponentActivity() {
                         onResume = { Recorder.resume(this) },
                         onFinish = ::finishInterrupted,
                         onSessions = { screen = Screen.SESSIONS },
+                        onDeviceCheck = { screen = Screen.DEVICE },
                         onFix = ::fix,
                     )
                 }

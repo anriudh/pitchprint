@@ -48,6 +48,7 @@ fun HomeScreen(
     onResume: () -> Unit,
     onFinish: () -> Unit,
     onSessions: () -> Unit,
+    onDeviceCheck: () -> Unit,
     onFix: (Fix) -> Unit,
 ) {
     val context = LocalContext.current
@@ -97,6 +98,7 @@ fun HomeScreen(
                 }
             }
             OutlinedButton(onClick = onSessions, modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("Sessions") }
+            OutlinedButton(onClick = onDeviceCheck, modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("Device check") }
         }
     }
 }
