@@ -61,6 +61,7 @@ fun MainScreen(
     onResume: () -> Unit,
     onFinish: () -> Unit,
     onStop: () -> Unit,
+    onSessions: () -> Unit,
 ) {
     Surface(Modifier.fillMaxSize()) {
         Column(
@@ -74,6 +75,9 @@ fun MainScreen(
                 else -> Button(onClick = onNewSession, modifier = Modifier.fillMaxWidth().height(64.dp)) {
                     Text("New session", style = MaterialTheme.typography.titleMedium)
                 }
+            }
+            if (!live.recording) {
+                OutlinedButton(onClick = onSessions, modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("Sessions") }
             }
         }
     }
@@ -264,7 +268,7 @@ private fun gnssText(live: Live): String {
 
 private fun hz(v: Double) = String.format(Locale.ROOT, "%.0f Hz", v)
 
-private fun elapsed(ms: Long): String {
+internal fun elapsed(ms: Long): String {
     val s = (ms / 1000).coerceAtLeast(0)
     return String.format(Locale.ROOT, "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
 }

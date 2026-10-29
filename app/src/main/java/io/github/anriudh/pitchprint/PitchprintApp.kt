@@ -1,6 +1,7 @@
 package io.github.anriudh.pitchprint
 
 import android.app.Application
+import io.github.anriudh.pitchprint.export.SessionExporter
 import io.github.anriudh.pitchprint.record.CrashLog
 import io.github.anriudh.pitchprint.record.Notifications
 
@@ -9,5 +10,6 @@ class PitchprintApp : Application() {
         super.onCreate()
         CrashLog.install(this)
         Notifications.createChannels(this)
+        SessionExporter.clearOld(this)
     }
 }

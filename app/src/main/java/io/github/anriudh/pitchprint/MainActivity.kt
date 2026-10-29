@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.MaterialTheme
@@ -14,6 +15,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import io.github.anriudh.pitchprint.record.Haptics
 import io.github.anriudh.pitchprint.record.Notifications
@@ -21,6 +23,9 @@ import io.github.anriudh.pitchprint.record.Recorder
 import io.github.anriudh.pitchprint.record.Session
 import io.github.anriudh.pitchprint.record.Sessions
 import io.github.anriudh.pitchprint.ui.MainScreen
+import io.github.anriudh.pitchprint.ui.SessionsScreen
+
+private enum class Screen { HOME, SESSIONS }
 
 class MainActivity : ComponentActivity() {
     private var interrupted by mutableStateOf<String?>(null)
@@ -35,15 +40,23 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 val live by Recorder.live.collectAsState()
+                var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
                 LaunchedEffect(live.recording) { refreshInterrupted() }
-                MainScreen(
-                    live = live,
-                    interrupted = interrupted,
-                    onNewSession = ::newSession,
-                    onResume = { Recorder.resume(this) },
-                    onFinish = ::finishInterrupted,
-                    onStop = { Recorder.stop(this) },
-                )
+                // While recording, the recording screen always wins.
+                val shown = if (live.recording) Screen.HOME else screen
+                BackHandler(enabled = shown != Screen.HOME) { screen = Screen.HOME }
+                when (shown) {
+                    Screen.SESSIONS -> SessionsScreen(onBack = { screen = Screen.HOME })
+                    Screen.HOME -> MainScreen(
+                        live = live,
+                        interrupted = interrupted,
+                        onNewSession = ::newSession,
+                        onResume = { Recorder.resume(this) },
+                        onFinish = ::finishInterrupted,
+                        onStop = { Recorder.stop(this) },
+                        onSessions = { screen = Screen.SESSIONS },
+                    )
+                }
             }
         }
     }

@@ -9,6 +9,16 @@ import java.util.Date
 import java.util.Locale
 import kotlin.random.Random
 
+data class SessionSummary(
+    val dir: File,
+    val startWallMs: Long?,
+    val endWallMs: Long?,
+    val splits: Int,
+    val markers: Int,
+    val bytes: Long,
+    val finished: Boolean,
+)
+
 /** Where session folders live, and which one is unfinished. */
 object Sessions {
     private const val KEY_ACTIVE = "active_session"
@@ -23,6 +33,40 @@ object Sessions {
         val stamp = SimpleDateFormat("yyyy-MM-dd_HHmm", Locale.ROOT).format(Date())
         val suffix = String.format(Locale.ROOT, "%04x", Random.nextInt(0x10000))
         return File(root(context), "${stamp}_$suffix")
+    }
+
+    /** Session folders, newest first (folder names start with the start time). */
+    fun list(context: Context): List<File> =
+        root(context).listFiles()?.filter { it.isDirectory }?.sortedByDescending { it.name }.orEmpty()
+
+    /** Reads only events.jsonl and file sizes, so it stays quick for long sessions. */
+    fun summarize(dir: File): SessionSummary {
+        var start: Long? = null
+        var end: Long? = null
+        var splits = 0
+        var markers = 0
+        var finished = false
+        val events = File(dir, Stream.EVENTS.fileName)
+        if (events.exists()) {
+            events.forEachLine { line ->
+                val e = try {
+                    JSONObject(line)
+                } catch (ex: JSONException) {
+                    return@forEachLine
+                }
+                val wall = e.optLong("wall_ms").takeIf { it > 0 }
+                if (start == null) start = wall
+                if (wall != null) end = wall
+                when (e.optString("type")) {
+                    "split_start" -> splits++
+                    "marker" -> markers++
+                    "stop" -> finished = true
+                    "run_start" -> finished = false
+                }
+            }
+        }
+        val bytes = dir.listFiles()?.sumOf { it.length() } ?: 0
+        return SessionSummary(dir, start, end, splits, markers, bytes, finished)
     }
 
     fun activeDir(context: Context): File? =
