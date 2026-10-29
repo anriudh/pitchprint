@@ -25,6 +25,7 @@ import io.github.anriudh.pitchprint.record.Notifications
 import io.github.anriudh.pitchprint.record.Recorder
 import io.github.anriudh.pitchprint.record.Session
 import io.github.anriudh.pitchprint.record.Sessions
+import io.github.anriudh.pitchprint.storage.Storage
 import io.github.anriudh.pitchprint.ui.DeviceCheckScreen
 import io.github.anriudh.pitchprint.ui.HomeScreen
 import io.github.anriudh.pitchprint.ui.RecordingScreen
@@ -69,7 +70,7 @@ class MainActivity : ComponentActivity() {
                         onFinish = ::finishInterrupted,
                         onSessions = { screen = Screen.SESSIONS },
                         onDeviceCheck = { screen = Screen.DEVICE },
-                        onFix = ::fix,
+                        onFix = { if (it == Fix.SESSIONS) screen = Screen.SESSIONS else fix(it) },
                     )
                 }
             }
@@ -85,6 +86,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         refreshInterrupted()
         checksVersion++
+        Storage.tidy(this, "resume")
     }
 
     private fun fix(fix: Fix) {
@@ -150,6 +152,7 @@ class MainActivity : ComponentActivity() {
         Thread {
             Session.finishInterrupted(dir)
             Sessions.setActive(this, null)
+            Storage.tidy(this, "finish")
             runOnUiThread { refreshInterrupted() }
         }.start()
     }

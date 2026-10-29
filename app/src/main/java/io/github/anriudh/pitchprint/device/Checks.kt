@@ -11,8 +11,10 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import io.github.anriudh.pitchprint.storage.Storage
+import io.github.anriudh.pitchprint.storage.StoragePolicy
 
-enum class Fix { LOCATION_PERMISSION, NOTIFICATIONS, LOCATION_SETTINGS, BATTERY_OPTIMISATION, APP_DETAILS, BATTERY_SAVER }
+enum class Fix { LOCATION_PERMISSION, NOTIFICATIONS, LOCATION_SETTINGS, BATTERY_OPTIMISATION, APP_DETAILS, BATTERY_SAVER, SESSIONS }
 
 /** One line on the home screen. [detail] says what is wrong and is only shown when [ok] is false. */
 data class Check(val title: String, val ok: Boolean, val detail: String, val fix: Fix, val optional: Boolean = false)
@@ -30,6 +32,7 @@ object Checks {
             notifications.areNotificationsEnabled()
         // With battery saver on, Android may switch GPS off or throttle it while the screen is off.
         val saverOk = !power.isPowerSaveMode || power.locationPowerSaveMode == PowerManager.LOCATION_MODE_NO_CHANGE
+        val storage = Storage.usage(context)
         return listOf(
             Check(
                 "Precise location",
@@ -76,6 +79,7 @@ object Checks {
                 Fix.APP_DETAILS,
                 optional = true,
             ),
+            Check(StoragePolicy.describe(storage), storage.ok, StoragePolicy.problem(storage), Fix.SESSIONS),
         )
     }
 
@@ -90,6 +94,7 @@ object Checks {
             Fix.BATTERY_OPTIMISATION -> Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, pkg)
             Fix.APP_DETAILS -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg)
             Fix.BATTERY_SAVER -> Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS)
+            Fix.SESSIONS -> null
         }
     }
 }
