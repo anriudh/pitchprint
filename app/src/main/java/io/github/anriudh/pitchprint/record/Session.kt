@@ -41,6 +41,14 @@ class Session(private val context: Context, val dir: File) {
     private var statusNs = 0L
     private var ticks = 0
 
+    // Split, pause, test and corner state. Commands arrive from the UI thread and the corner
+    // timer, so everything below is guarded by the lock, which also keeps events in order.
+    private val lock = Any()
+    private var state = SessionState()
+    private var ready = false
+    private var lastLive = Live(recording = true, session = dir.name, startWallMs = startWallMs)
+    private var notificationText = ""
+
     private data class Counts(
         val fixes: Long = 0,
         val raw: Long = 0,
@@ -54,12 +62,20 @@ class Session(private val context: Context, val dir: File) {
         handler = Handler(callbackThread.looper)
         gnss = GnssSource(context, this, handler)
         motion = MotionSource(context, this, handler)
+        // Read before the writer starts, so its repair of a cut-off last line cannot race the read.
+        if (!isNew) state = readState(dir)
         writer.start()
         if (isNew) {
             writeMeta()
             event("session_start")
         }
         event("run_start", "reason" to reason, "boot_count" to bootCount())
+        synchronized(lock) {
+            // The 30 s hold was cut short, so that corner can't be used.
+            state.corner?.let { command("corner_cancel", "point" to it.point, "reason" to "interrupted") }
+            ready = true
+            changed()
+        }
         gnss.start()
         motion.start()
         publishNs = SystemClock.elapsedRealtimeNanos()
@@ -69,12 +85,18 @@ class Session(private val context: Context, val dir: File) {
     }
 
     fun stop(reason: String) {
+        synchronized(lock) {
+            ready = false
+            handler.removeCallbacks(cornerDone)
+            for (e in state.closing("stop")) command(e.type, *e.fields)
+        }
         event("stop", "reason" to reason)
         halt()
     }
 
     /** Stops logging without marking the session finished, so it can be resumed later. */
     fun halt() {
+        synchronized(lock) { ready = false }
         gnss.stop()
         motion.stop()
         handler.removeCallbacksAndMessages(null)
@@ -97,6 +119,110 @@ class Session(private val context: Context, val dir: File) {
         event("marker", "key" to key, "screen_on" to screenOn)
     }
 
+    fun startSplit(labels: SplitLabels) {
+        synchronized(lock) {
+            if (!ready || state.split != null) return
+            command("split_start", "n" to state.splits + 1, *labels.fields())
+        }
+        Sessions.saveLastSplit(context, labels)
+    }
+
+    fun endSplit() {
+        synchronized(lock) {
+            val split = state.split
+            if (!ready || split == null) return
+            command("split_end", "n" to split.n, "reason" to "user")
+        }
+    }
+
+    fun pause() {
+        synchronized(lock) {
+            if (!ready || state.paused) return
+            command("pause")
+        }
+    }
+
+    fun unpause() {
+        synchronized(lock) {
+            if (!ready || !state.paused) return
+            command("resume", "reason" to "user")
+        }
+    }
+
+    fun markCorner(point: String) {
+        synchronized(lock) {
+            if (!ready || state.corner != null) return
+            command("corner_start", "point" to point, "hold_s" to CORNER_HOLD_S)
+            handler.postDelayed(cornerDone, CORNER_HOLD_S * 1_000L)
+        }
+    }
+
+    fun cancelCorner() {
+        synchronized(lock) {
+            val corner = state.corner
+            if (!ready || corner == null) return
+            handler.removeCallbacks(cornerDone)
+            command("corner_cancel", "point" to corner.point, "reason" to "user")
+        }
+    }
+
+    private val cornerDone = Runnable {
+        synchronized(lock) {
+            val corner = state.corner
+            if (!ready || corner == null) return@Runnable
+            command("corner_end", "point" to corner.point)
+        }
+        Haptics.cornerDone(context)
+    }
+
+    fun startTest(test: String, carry: String, note: String?) {
+        synchronized(lock) {
+            if (!ready || state.test != null) return
+            command("test_start", "test" to test, "carry" to carry, "note" to note)
+        }
+    }
+
+    fun endTest() {
+        synchronized(lock) {
+            val test = state.test
+            if (!ready || test == null) return
+            command("test_end", "test" to test.test, "reason" to "user")
+        }
+    }
+
+    // Caller holds the lock. The state moves on from the line as written, exactly as replay does.
+    private fun command(type: String, vararg fields: Pair<String, Any?>) {
+        val line = eventLine(type, *fields)
+        writer.append(Stream.EVENTS, line)
+        state = state.apply(JSONObject(line))
+        if (ready) changed()
+    }
+
+    // Caller holds the lock. Pushes the new state to the screen and the notification right away.
+    private fun changed() {
+        lastLive = withState(lastLive)
+        Recorder.publish(lastLive)
+        val split = state.split
+        val text = when {
+            state.paused -> "Paused, still logging"
+            split != null -> "Split ${split.n} running"
+            state.splits > 0 -> "Between splits"
+            else -> Notifications.DEFAULT_TEXT
+        }
+        if (text != notificationText) {
+            notificationText = text
+            Notifications.updateRecording(context, startWallMs, text)
+        }
+    }
+
+    private fun withState(live: Live) = live.copy(
+        splits = state.splits,
+        split = state.split,
+        paused = state.paused,
+        test = state.test,
+        corner = state.corner,
+    )
+
     private val ticker = object : Runnable {
         override fun run() {
             publish()
@@ -118,27 +244,29 @@ class Session(private val context: Context, val dir: File) {
         val c = counts()
         val p = publishCounts
         val dt = (now - publishNs) / 1e9
-        Recorder.publish(
-            Live(
-                recording = true,
-                session = dir.name,
-                startWallMs = startWallMs,
-                fixes = c.fixes,
-                fixHz = (c.fixes - p.fixes) / dt,
-                fixAgeS = if (c.fixes > 0) (now - gnss.lastFixNs) / 1e9 else null,
-                accuracyM = gnss.lastAccuracy,
-                satsUsed = gnss.satsUsed,
-                satsInView = gnss.satsInView,
-                rawEpochs = c.raw,
-                accelHz = (c.accel - p.accel) / dt,
-                gyroHz = (c.gyro - p.gyro) / dt,
-                magHz = (c.mag - p.mag) / dt,
-                markers = markers.get(),
-                megabytes = writer.bytesWritten.get() / 1e6,
-                queue = writer.queueDepth,
-                writerError = writer.lastError,
-            ),
+        val live = Live(
+            recording = true,
+            session = dir.name,
+            startWallMs = startWallMs,
+            fixes = c.fixes,
+            fixHz = (c.fixes - p.fixes) / dt,
+            fixAgeS = if (c.fixes > 0) (now - gnss.lastFixNs) / 1e9 else null,
+            accuracyM = gnss.lastAccuracy,
+            satsUsed = gnss.satsUsed,
+            satsInView = gnss.satsInView,
+            rawEpochs = c.raw,
+            accelHz = (c.accel - p.accel) / dt,
+            gyroHz = (c.gyro - p.gyro) / dt,
+            magHz = (c.mag - p.mag) / dt,
+            markers = markers.get(),
+            megabytes = writer.bytesWritten.get() / 1e6,
+            queue = writer.queueDepth,
+            writerError = writer.lastError,
         )
+        synchronized(lock) {
+            lastLive = withState(live)
+            Recorder.publish(lastLive)
+        }
         publishCounts = c
         publishNs = now
     }
@@ -203,6 +331,8 @@ class Session(private val context: Context, val dir: File) {
 
     companion object {
         const val FORMAT_VERSION = 1
+        const val CORNER_HOLD_S = 30
+        private const val FINISHED = "finished_after_interruption"
 
         fun eventLine(type: String, vararg fields: Pair<String, Any?>): String {
             val o = JSONObject()
@@ -215,10 +345,17 @@ class Session(private val context: Context, val dir: File) {
 
         /** Closes a session that was interrupted and will not be resumed. */
         fun finishInterrupted(dir: File) {
+            val state = readState(dir)
             val w = SessionWriter(dir)
             w.start()
-            w.append(Stream.EVENTS, eventLine("stop", "reason" to "finished_after_interruption"))
+            for (e in state.closing(FINISHED)) w.append(Stream.EVENTS, eventLine(e.type, *e.fields))
+            w.append(Stream.EVENTS, eventLine("stop", "reason" to FINISHED))
             w.close()
+        }
+
+        private fun readState(dir: File): SessionState {
+            val events = File(dir, Stream.EVENTS.fileName)
+            return if (events.exists()) replay(events.readText()) else SessionState()
         }
     }
 }

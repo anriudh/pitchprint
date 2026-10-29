@@ -25,6 +25,11 @@ data class Live(
     val megabytes: Double = 0.0,
     val queue: Int = 0,
     val writerError: String? = null,
+    val splits: Int = 0,
+    val split: Split? = null,
+    val paused: Boolean = false,
+    val test: TestSegment? = null,
+    val corner: CornerHold? = null,
 )
 
 /** The running session, if any, and how the UI talks to the recorder service. */

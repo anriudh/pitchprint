@@ -27,11 +27,13 @@ object Notifications {
         )
     }
 
-    fun recording(context: Context, startWallMs: Long): Notification {
+    const val DEFAULT_TEXT = "Raw logging is running"
+
+    fun recording(context: Context, startWallMs: Long, text: String = DEFAULT_TEXT): Notification {
         val builder = Notification.Builder(context, CHANNEL_RECORDING)
             .setSmallIcon(R.drawable.ic_stat_record)
             .setContentTitle("Recording")
-            .setContentText("Raw logging is running")
+            .setContentText(text)
             .setWhen(startWallMs)
             .setShowWhen(true)
             .setUsesChronometer(true)
@@ -41,6 +43,11 @@ object Notifications {
             builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
         }
         return builder.build()
+    }
+
+    fun updateRecording(context: Context, startWallMs: Long, text: String) {
+        context.getSystemService(NotificationManager::class.java)
+            .notify(ID_RECORDING, recording(context, startWallMs, text))
     }
 
     fun showInterrupted(context: Context) {
