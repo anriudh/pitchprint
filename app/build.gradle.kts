@@ -61,4 +61,6 @@ dependencies {
     implementation(libs.androidx.compose.material3)
 
     testImplementation(libs.junit)
+    // The org.json in android.jar is a stub that throws in JVM tests.
+    testImplementation(libs.org.json)
 }
