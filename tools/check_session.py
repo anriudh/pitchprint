@@ -77,6 +77,56 @@ def read_events(src):
     return events, bad
 
 
+OPENERS = {"split_start": "split", "pause": "pause", "corner_start": "corner", "test_start": "test"}
+CLOSERS = {"split_end": "split", "resume": "pause", "corner_end": "corner", "corner_cancel": "corner",
+           "test_end": "test"}
+
+
+def label_lines(events, start_wall):
+    """Splits, pauses, corner holds and test segments in start order, plus anything unpaired."""
+    def at(e):
+        return clock((e["wall_ms"] - start_wall) / 1000)
+
+    def describe(kind, start, end):
+        span = f"{at(start)} to {at(end)}" if end else f"{at(start)}, never closed"
+        reason = f", closed by {end.get('reason')}" if end and end.get("reason") not in (None, "user") else ""
+        if kind == "split":
+            labels = ", ".join(str(start[k]) for k in ("layout", "half", "position", "attack", "carry", "note")
+                               if start.get(k) is not None)
+            return f"Split {start.get('n')}  {span}{reason}: {labels}"
+        if kind == "pause":
+            return f"Pause    {span}{reason}"
+        if kind == "corner":
+            if end is None:
+                return f"Corner {start.get('point')}  {at(start)}, never closed"
+            if end["type"] == "corner_end":
+                # Both events come from the same run, so the monotonic clock gives the exact hold.
+                return f"Corner {start.get('point')}  {at(start)}, held {(end['t_ns'] - start['t_ns']) / 1e9:.3f} s"
+            after = (end["wall_ms"] - start["wall_ms"]) / 1000
+            return f"Corner {start.get('point')}  {at(start)}, cancelled ({end.get('reason')}) after {after:.1f} s"
+        extra = ", ".join(str(x) for x in (start.get("carry"), start.get("note")) if x)
+        return f"Test {start.get('test')} ({extra})  {span}{reason}"
+
+    found, problems, open_ = [], [], {}
+    for e in events:
+        kind = OPENERS.get(e["type"])
+        if kind:
+            if kind in open_:
+                problems.append(f"{e['type']} at {at(e)} while one was already open")
+            open_[kind] = e
+            continue
+        kind = CLOSERS.get(e["type"])
+        if kind:
+            start = open_.pop(kind, None)
+            if start is None:
+                problems.append(f"{e['type']} at {at(e)} with nothing open")
+            else:
+                found.append((start["wall_ms"], describe(kind, start, e)))
+    for kind, start in open_.items():
+        found.append((start["wall_ms"], describe(kind, start, None)))
+    return [text for _, text in sorted(found, key=lambda x: x[0])] + ["Unpaired: " + p for p in problems]
+
+
 class Timeline:
     """Maps t_ns to seconds since session start, using each run's clock anchor.
 
@@ -191,6 +241,9 @@ def main():
         print("Markers " + ", ".join(
             f"{clock((e['wall_ms'] - start_wall) / 1000)} {e.get('key')}{'' if e.get('screen_on') else ' (screen off)'}"
             for e in markers))
+    labels = label_lines(events, start_wall)
+    if labels:
+        print("Labels  " + "\n        ".join(labels))
     for kind in ("repaired", "crash", "gnss_error", "sensor_error", "service_destroyed"):
         for e in (e for e in events if e["type"] == kind):
             details = {k: v for k, v in e.items() if k not in ("t_ns", "wall_ms", "type")}
