@@ -54,45 +54,14 @@ import java.util.Locale
 private const val HOLD_TO_STOP_MS = 2_000
 
 @Composable
-fun MainScreen(
-    live: Live,
-    interrupted: String?,
-    onNewSession: () -> Unit,
-    onResume: () -> Unit,
-    onFinish: () -> Unit,
-    onStop: () -> Unit,
-    onSessions: () -> Unit,
-) {
+fun RecordingScreen(live: Live, onStop: () -> Unit) {
     Surface(Modifier.fillMaxSize()) {
         Column(
             Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text("Pitchprint", style = MaterialTheme.typography.headlineSmall)
-            when {
-                live.recording -> Recording(live, onStop)
-                interrupted != null -> Interrupted(interrupted, onResume, onFinish)
-                else -> Button(onClick = onNewSession, modifier = Modifier.fillMaxWidth().height(64.dp)) {
-                    Text("New session", style = MaterialTheme.typography.titleMedium)
-                }
-            }
-            if (!live.recording) {
-                OutlinedButton(onClick = onSessions, modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("Sessions") }
-            }
-        }
-    }
-}
-
-@Composable
-private fun Interrupted(name: String, onResume: () -> Unit, onFinish: () -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Session $name stopped without being finished.")
-            Row {
-                Button(onClick = onResume) { Text("Resume") }
-                Spacer(Modifier.width(12.dp))
-                OutlinedButton(onClick = onFinish) { Text("Finish") }
-            }
+            Recording(live, onStop)
         }
     }
 }
