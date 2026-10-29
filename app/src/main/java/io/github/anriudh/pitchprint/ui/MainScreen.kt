@@ -18,7 +18,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -28,17 +30,24 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.github.anriudh.pitchprint.record.Live
+import io.github.anriudh.pitchprint.record.Recorder
+import io.github.anriudh.pitchprint.record.Session
+import io.github.anriudh.pitchprint.record.Sessions
+import io.github.anriudh.pitchprint.record.SplitLabels
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -55,7 +64,7 @@ fun MainScreen(
 ) {
     Surface(Modifier.fillMaxSize()) {
         Column(
-            Modifier.safeDrawingPadding().padding(20.dp),
+            Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text("Pitchprint", style = MaterialTheme.typography.headlineSmall)
@@ -84,29 +93,131 @@ private fun Interrupted(name: String, onResume: () -> Unit, onFinish: () -> Unit
     }
 }
 
+private enum class SheetKind { SPLIT, CORNER, TEST }
+
 @Composable
 private fun ColumnScope.Recording(live: Live, onStop: () -> Unit) {
-    Text(
-        elapsed(System.currentTimeMillis() - live.startWallMs),
-        style = MaterialTheme.typography.displayLarge,
-        fontFamily = FontFamily.Monospace,
-    )
+    val context = LocalContext.current
+    val session = Recorder.session
+    var sheet by remember { mutableStateOf<SheetKind?>(null) }
+    val now = System.currentTimeMillis()
+
+    Text(elapsed(now - live.startWallMs), style = MaterialTheme.typography.displayLarge, fontFamily = FontFamily.Monospace)
     Text(live.session, style = MaterialTheme.typography.bodySmall)
-    Stat("GNSS", gnssText(live))
-    Stat("Raw GNSS", "${live.rawEpochs} epochs")
-    Stat("Sensors", "accel ${hz(live.accelHz)}   gyro ${hz(live.gyroHz)}   mag ${hz(live.magHz)}")
-    Stat("Markers", live.markers.toString())
-    Stat("Written", String.format(Locale.ROOT, "%.1f MB, queue %d", live.megabytes, live.queue))
+
+    if (live.paused) {
+        Surface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = MaterialTheme.shapes.medium) {
+            Text("Paused, still logging", Modifier.fillMaxWidth().padding(12.dp), style = MaterialTheme.typography.titleMedium)
+        }
+    }
+
+    val split = live.split
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (split == null) {
+                Text(if (live.splits == 0) "No split yet" else "Between splits (${live.splits} done)", style = MaterialTheme.typography.titleMedium)
+            } else {
+                Text("Split ${split.n}   ${elapsed(now - split.startWallMs)}", style = MaterialTheme.typography.titleMedium)
+                Text(splitText(split.labels))
+            }
+        }
+    }
+
+    live.corner?.let { corner ->
+        val left = (Session.CORNER_HOLD_S - (now - corner.startWallMs) / 1000).coerceAtLeast(0)
+        Card(Modifier.fillMaxWidth()) {
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Corner ${corner.point}: hold still, $left s", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                OutlinedButton(onClick = { session?.cancelCorner() }) { Text("Cancel") }
+            }
+        }
+    }
+
+    live.test?.let { test ->
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Test: ${name(TESTS, test.test)}   ${elapsed(now - test.startWallMs)}", style = MaterialTheme.typography.titleMedium)
+                Text(listOfNotNull(name(CARRY, test.carry), test.note).joinToString(", "))
+            }
+        }
+    }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        val wide = Modifier.weight(1f).height(56.dp)
+        when {
+            split != null -> OutlinedButton(onClick = { session?.endSplit() }, modifier = wide) { Text("End split") }
+            else -> Button(onClick = { sheet = SheetKind.SPLIT }, modifier = wide) {
+                Text(if (live.splits == 0) "Start split" else "Start next split")
+            }
+        }
+        if (live.paused) {
+            Button(onClick = { session?.unpause() }, modifier = wide) { Text("Resume") }
+        } else {
+            OutlinedButton(onClick = { session?.pause() }, modifier = wide) { Text("Pause") }
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        val wide = Modifier.weight(1f).height(56.dp)
+        OutlinedButton(onClick = { sheet = SheetKind.CORNER }, enabled = live.corner == null, modifier = wide) {
+            Text("Mark corner")
+        }
+        if (live.test != null) {
+            OutlinedButton(onClick = { session?.endTest() }, modifier = wide) { Text("End test") }
+        } else {
+            OutlinedButton(onClick = { sheet = SheetKind.TEST }, modifier = wide) { Text("Test segment") }
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Stat("GNSS", gnssText(live))
+        Stat("Raw GNSS", "${live.rawEpochs} epochs")
+        Stat("Sensors", "accel ${hz(live.accelHz)}   gyro ${hz(live.gyroHz)}   mag ${hz(live.magHz)}")
+        Stat("Markers", live.markers.toString())
+        Stat("Written", String.format(Locale.ROOT, "%.1f MB, queue %d", live.megabytes, live.queue))
+    }
     live.writerError?.let { Text("Write problem: $it", color = MaterialTheme.colorScheme.error) }
-    Spacer(Modifier.weight(1f))
+    Spacer(Modifier.height(8.dp))
     HoldToStop(onStop, Modifier.align(Alignment.CenterHorizontally))
+
+    when (sheet) {
+        SheetKind.SPLIT -> SplitSheet(
+            initial = Sessions.lastSplit(context),
+            onStart = {
+                session?.startSplit(it)
+                sheet = null
+            },
+            onDismiss = { sheet = null },
+        )
+        SheetKind.CORNER -> CornerSheet(
+            onPick = {
+                session?.markCorner(it)
+                sheet = null
+            },
+            onDismiss = { sheet = null },
+        )
+        SheetKind.TEST -> TestSheet(
+            initialCarry = split?.labels?.carry ?: Sessions.lastSplit(context)?.carry,
+            onStart = { test, carry, note ->
+                session?.startTest(test, carry, note)
+                sheet = null
+            },
+            onDismiss = { sheet = null },
+        )
+        null -> {}
+    }
+}
+
+private fun splitText(l: SplitLabels): String {
+    val layout = name(LAYOUTS, l.layout) + (l.half?.let { " $it" } ?: "")
+    return listOfNotNull(layout, name(POSITIONS, l.position), "attacking ${name(GOALS, l.attack)}", name(CARRY, l.carry), l.note)
+        .joinToString(", ")
 }
 
 @Composable
 private fun Stat(label: String, value: String) {
-    Column {
-        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-        Text(value, style = MaterialTheme.typography.bodyLarge)
+    Row {
+        Text(label, Modifier.width(84.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+        Text(value, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
