@@ -72,8 +72,12 @@ class RecorderService : Service() {
         val power = getSystemService(PowerManager::class.java)
         wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "pitchprint:recording")
             .apply { acquire(WAKE_LOCK_TIMEOUT_MS) }
-        markers = VolumeMarkers(this) { key ->
-            if (s.volumeKey(key, power.isInteractive)) Haptics.confirm(this)
+        markers = VolumeMarkers(this) { direction, newPress ->
+            s.event("key", "source" to "media", "dir" to direction)
+            if (newPress) {
+                s.marker(if (direction > 0) "up" else "down", power.isInteractive)
+                Haptics.confirm(this)
+            }
         }.also { it.start() }
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)

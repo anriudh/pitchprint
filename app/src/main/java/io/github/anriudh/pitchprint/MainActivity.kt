@@ -64,12 +64,22 @@ class MainActivity : ComponentActivity() {
         val s = Recorder.session
         if (s == null || !isVolumeKey(keyCode)) return super.onKeyDown(keyCode, event)
         val key = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) "up" else "down"
-        if (s.volumeKey(key, screenOn = true)) Haptics.confirm(this)
+        s.event("key", "source" to "activity", "key" to key, "action" to "down", "repeat" to event.repeatCount)
+        // Holding a key repeats it; only the first down is a press.
+        if (event.repeatCount == 0) {
+            s.marker(key, screenOn = true)
+            Haptics.confirm(this)
+        }
         return true
     }
 
-    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean =
-        if (Recorder.session != null && isVolumeKey(keyCode)) true else super.onKeyUp(keyCode, event)
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        val s = Recorder.session
+        if (s == null || !isVolumeKey(keyCode)) return super.onKeyUp(keyCode, event)
+        val key = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) "up" else "down"
+        s.event("key", "source" to "activity", "key" to key, "action" to "up")
+        return true
+    }
 
     private fun isVolumeKey(keyCode: Int) =
         keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN

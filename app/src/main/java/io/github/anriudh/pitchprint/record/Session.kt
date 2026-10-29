@@ -91,21 +91,10 @@ class Session(private val context: Context, val dir: File) {
         writer.append(stream, line)
     }
 
-    private var lastVolumeKeyNs = 0L
-
-    /**
-     * Called on the main thread for every volume key press and auto-repeat. Holding a key repeats
-     * it, so key activity within a second of the previous one counts as the same press.
-     * Returns true when a marker was written.
-     */
-    fun volumeKey(key: String, screenOn: Boolean): Boolean {
-        val now = SystemClock.elapsedRealtimeNanos()
-        val fresh = now - lastVolumeKeyNs > MARKER_GAP_NS
-        lastVolumeKeyNs = now
-        if (!fresh) return false
+    /** One volume button press. Callers pass only new presses, never repeats or releases. */
+    fun marker(key: String, screenOn: Boolean) {
         markers.incrementAndGet()
         event("marker", "key" to key, "screen_on" to screenOn)
-        return true
     }
 
     private val ticker = object : Runnable {
@@ -214,7 +203,6 @@ class Session(private val context: Context, val dir: File) {
 
     companion object {
         const val FORMAT_VERSION = 1
-        private const val MARKER_GAP_NS = 1_000_000_000L
 
         fun eventLine(type: String, vararg fields: Pair<String, Any?>): String {
             val o = JSONObject()
