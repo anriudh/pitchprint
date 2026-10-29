@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import io.github.anriudh.pitchprint.storage.Storage
 import java.io.File
 
 /** Foreground service that keeps a session recording with the screen off. */
@@ -105,6 +106,7 @@ class RecorderService : Service() {
             s.stop("user")
             Sessions.setActive(applicationContext, null)
             Recorder.detach(s)
+            Storage.tidy(applicationContext, "stop")
             main.post {
                 releaseWakeLock()
                 stopForeground(STOP_FOREGROUND_REMOVE)

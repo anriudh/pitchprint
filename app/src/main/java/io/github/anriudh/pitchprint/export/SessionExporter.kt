@@ -4,51 +4,27 @@ import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
-import java.io.BufferedOutputStream
+import io.github.anriudh.pitchprint.storage.SessionArchive
 import java.io.File
-import java.io.FileOutputStream
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 
-/** Zips a session folder into the cache and hands it to the share sheet. */
+/** Hands a session zip to the share sheet. Zipped sessions are shared as they are stored. */
 object SessionExporter {
-    private fun dir(context: Context) = File(context.cacheDir, "exports")
+    fun cacheDir(context: Context) = File(context.cacheDir, "exports")
 
-    /** Old zips are only needed while a share is in progress, so they go on the next app start. */
-    fun clearOld(context: Context) {
-        dir(context).listFiles()?.forEach { it.delete() }
-    }
-
-    /** Blocks while zipping. [onProgress] gets the fraction of bytes done, in whole-percent steps. */
-    fun zip(context: Context, session: File, onProgress: (Float) -> Unit): File {
-        val out = File(dir(context).apply { mkdirs() }, "pitchprint_${session.name}.zip")
-        val part = File(out.path + ".part")
-        val files = session.listFiles()?.filter { it.isFile }?.sortedBy { it.name }.orEmpty()
-        val total = files.sumOf { it.length() }.coerceAtLeast(1)
-        var done = 0L
-        var lastPct = -1
-        val buf = ByteArray(64 * 1024)
-        ZipOutputStream(BufferedOutputStream(FileOutputStream(part))).use { zip ->
-            for (f in files) {
-                zip.putNextEntry(ZipEntry("${session.name}/${f.name}").apply { time = f.lastModified() })
-                f.inputStream().use { input ->
-                    while (true) {
-                        val n = input.read(buf)
-                        if (n < 0) break
-                        zip.write(buf, 0, n)
-                        done += n
-                        val pct = (done * 100 / total).toInt()
-                        if (pct != lastPct) {
-                            lastPct = pct
-                            onProgress(pct / 100f)
-                        }
-                    }
-                }
-                zip.closeEntry()
-            }
+    /**
+     * Zips a folder that can't be archived yet (the unfinished session) into the cache. Blocks
+     * while zipping. Only a complete zip ever has the final name, so a failed export can't be shared.
+     */
+    fun zipToCache(context: Context, session: File, cancelled: () -> Boolean, onProgress: (Float) -> Unit): File {
+        val out = File(cacheDir(context).apply { mkdirs() }, "${session.name}${SessionArchive.EXT}")
+        val part = File(out.path + SessionArchive.PART)
+        try {
+            SessionArchive.write(session, part, cancelled, onProgress)
+            if (!part.renameTo(out)) error("could not rename ${part.name}")
+        } catch (e: Throwable) {
+            part.delete()
+            throw e
         }
-        // Only a complete zip ever has the final name, so a failed export can't be shared.
-        if (!part.renameTo(out)) error("could not rename ${part.name}")
         return out
     }
 
